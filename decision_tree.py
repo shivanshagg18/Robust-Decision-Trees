@@ -1,3 +1,5 @@
+import numpy as np
+
 class MultivariateDecisionTree:
     """A dict-based representation of a multivariate decision tree.
     
