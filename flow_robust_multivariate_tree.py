@@ -248,7 +248,8 @@ class RDT(ClassifierMixin, BaseEstimator):
                                 np.dot(a_vals[parent], perturb_var) >= b_vals[parent] - np.dot(a_vals[parent], x)
                             ))
                         
-                        parent = k // 2
+                        parent = parent // 2
+                        child = parent % 2
 
                     sub_model.optimize()
 
