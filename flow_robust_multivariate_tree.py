@@ -8,6 +8,13 @@ import gurobipy as gp
 from gurobipy import GRB
 from .decision_tree import MultivariateDecisionTree
 
+# TODO (not urgent) even though index variables can be named anything, I strongly recommend sticking to the following conventions:
+# - Decision tree nodes: t (note that the decision variables are also named t)
+# - Datapoints: i
+# - Features: j
+# - Class labels: k
+# flow_oct.py uses n instead of t to index nodes because the original paper uses n to index nodes
+
 class RDT(ClassifierMixin, BaseEstimator):
     """
     Parameters
@@ -122,23 +129,31 @@ class RDT(ClassifierMixin, BaseEstimator):
             + [(n, 2*n+1) for n in branch_nodes]
             + [(n, 't') for n in branch_nodes+leaf_nodes]
         )
-        ancestors = {} # dict mapping each node to a list of its ancestors
-        for n in branch_nodes+leaf_nodes:
-            a = []
-            curr_node = n
+        # dicts mapping each leaf node to its left/right-branch ancestors
+        left_ancestors = {}
+        right_ancestors = {}
+        for t in leaf_nodes:
+            la = []
+            ra = []
+            curr_node = t
             while curr_node > 1:
                 parent = int(curr_node/2)
-                a.append(parent)
+                if curr_node == 2*parent:
+                    la.append(parent)
+                else:
+                    ra.append(parent)
                 curr_node = parent
-            ancestors[n] = a
+            left_ancestors[t] = la
+            right_ancestors[t] = ra
         
         model = gp.Model()
         model._X_y = X, y
         model._flow_graph = branch_nodes, leaf_nodes, arcs
+        model._ancestors = left_ancestors, right_ancestors
 
         c = model.addVars(leaf_nodes, classes, vtype=GRB.BINARY)
-        a = model.addVars(branch_nodes, n_features)
-        a_cap = model.addVars(branch_nodes, n_features)
+        a = model.addVars(branch_nodes, n_features, lb=-1, ub=1)
+        a_cap = model.addVars(branch_nodes, n_features, lb=0, ub=1)
         b = model.addVars(branch_nodes, lb=-1, ub=1)
 
         t = model.addVars(n_samples, ub=1)
@@ -153,9 +168,10 @@ class RDT(ClassifierMixin, BaseEstimator):
             for n in leaf_nodes
         ))
 
-        model.addConstrs((
-           t.sum() <= 1
-        ))
+        # Why do we have this constraint?
+        #model.addConstrs((
+        #   t.sum() <= 1
+        #))
 
         model.addConstrs((
             a_cap.sum(n, "*") <= 1
@@ -165,13 +181,13 @@ class RDT(ClassifierMixin, BaseEstimator):
         model.addConstrs((
             a_cap[n, i] >= a[n, i]
             for n in branch_nodes
-            for i in  n_features
+            for i in range(n_features)
         ))
 
         model.addConstrs((
             a_cap[n, i] >= -a[n, i]
             for n in branch_nodes
-            for i in  n_features
+            for i in range(n_features)
         ))
 
     def _set_gurobi_params(self):
@@ -195,47 +211,64 @@ class RDT(ClassifierMixin, BaseEstimator):
             c_vals = model.cbGetSolution(c)
             X, y = model._X_y
             branch_nodes, leaf_nodes, arcs = model._flow_graph
+            left_ancestors, right_ancestors = model._ancestors
             n_samples, n_features = X.shape
             classes = unique_labels(y)
 
+            # TODO make these class attributes (like time_limit and verbose)
+            # To make our code scikit-learn compatible, I suggest setting them in __init__
+            # Then in _mip_model, you can store lambda and budget in the model (e.g., model._X_y = X, y)
+            # This is necessary because Gurobi insists callbacks accept exactly two arguments: model and where
+            # So anytime the callback needs access to other things, we have to pass them using the model
             lam = np.array([0.1 for i in n_features])
             budget = 10
 
-            mu = np.array([[i, 0] for i in n_samples])
-            perturb = np.array([[0 for j in n_features] for i in n_samples])
+            # I think it's easier to take advantage of how Python sorts a list of tuples (lexicographically)
+            #mu = np.array([[i, 0] for i in n_samples])
+            #perturb = np.array([[0 for j in n_features] for i in n_samples])
+            mu_i_xi = []  # List of tuples (mu, i, xi), one for every sample
 
             for i, x in enumerate(X):
                 j = 1
                 while j <= len(branch_nodes):
+                    # I don't think a_vals[j] will work the way you want, try replacing with something like this:
+                    # [a_vals[t,j] for j in range(n_features)]  # t = branch node, j indexes features
                     if np.dot(a_vals[j], x) > b_vals[j]:
                         j = 2*j + 1
                     else:
                         j = 2*j
-                if c_vals[j, y[i]] != 1:
+                # To check binary variables, it's better to compare with 0.5 due to numerical issues
+                #if c_vals[j, y[i]] != 1:
+                # This is confusing to me, why do we continue if c == 0, shouldn't it be c == 1 (sample is correctly classified)?
+                if c_vals[j, y[i]] < 0.5:
                     continue
 
-                min_mu = 1000000
-                for k in leaf_nodes:
-                    if np.argmax(c_vals[k]) == y[i]:
+                best_mu = float('inf')
+                for t in leaf_nodes:
+                    #if np.argmax(c_vals[k]) == y[i]:
+                    if c_vals[t, y[i]] > 0.5:
                         continue
 
                     sub_model = gp.Model()
-                    perturb_var = sub_model.addVars(n_features)
-                    perturb_cap_var = sub_model.addVars(n_features)
+                    perturb_var = sub_model.addVars(n_features, lb=-GRB.INFINITY, ub=GRB.INFINITY)
+                    perturb_cap_var = sub_model.addVars(n_features, lb=0, ub=GRB.INFINITY)
 
+                    # If obj_fn doesn't work (I suspect it won't) try this:
+                    # obj_fn = gp.quicksum(lam[j]*perturb_cap_var[j] for j in range(n_features))
                     obj_fn = np.dot(lam, perturb_cap_var)
                     sub_model.setObjective(obj_fn, GRB.MINIMIZE)
 
                     sub_model.addConstrs((
                         perturb_cap_var[n] >= perturb_var[n]
-                        for n in n_features
+                        for n in range(n_features)
                     ))
 
                     sub_model.addConstrs((
-                        perturb_cap_var[n] >= perturb_var[n]
-                        for n in n_features
+                        perturb_cap_var[n] >= -perturb_var[n]
+                        for n in range(n_features)
                     ))
-
+                    
+                    """Not wrong, but could be implemented more clearly using ancestor sets
                     parent = k // 2
                     child = k % 2
                     while parent >= 1:
@@ -250,17 +283,32 @@ class RDT(ClassifierMixin, BaseEstimator):
                         
                         parent = parent // 2
                         child = parent % 2
+                    """
+                    sub_model.addConstrs((
+                        gp.quicksum(a_vals[t,j], perturb_var[j] for j in range(n_features)) <= b_vals[t] - sum(a_vals[t,j]*x[j] for j in range(n_features))
+                        for t in left_ancestors[t]
+                    ))
+                    
+                    epsilon = 0.005  # TODO (not urgent, skip if you want) make this an attribute (like time_limit and verbose)
+                    sub_model.addConstrs((
+                        gp.quicksum(a_vals[t,j], perturb_var[j] for j in range(n_features)) >= b_vals[t] + epsilon - sum(a_vals[t,j]*x[j] for j in range(n_features))
+                        for t in right_ancestors[t]
+                    ))
 
                     sub_model.optimize()
 
-                    opt_sol = sub_model.getVars()
-                    if sub_model.objVal <= min_mu:
-                        min_mu = sub_model.objVal
-                        mu[i, 1] = min_mu
-                        for v in opt_sol:
-                            if v.varName == "perturb_var":
-                                perturb[i] = v.x
+                    #opt_sol = sub_model.getVars()
+                    if sub_model.objVal < best_mu:
+                        best_mu = sub_model.objVal
+                        best_xi = sub_model.getAttr('X', perturb_var)
+                        #mu[i, 1] = min_mu
+                        #for v in opt_sol:
+                        #    if v.varName == "perturb_var":
+                        #        perturb[i] = v.x
+                
+                mu_i_xi.append((best_mu, i, best_xi))
             
+            """Redone using mu_xi
             mu = mu[mu[:, 1].argsort()]
             perturb_set = np.array([])
             total_cost = 0
@@ -270,5 +318,13 @@ class RDT(ClassifierMixin, BaseEstimator):
                     perturb_set.append(mu[i, 0])
                 else:
                     break
-            
+            """
+            perturb_set = []
+            total_cost = 0
+            for mu, i, xi in sorted(mu_i_xi):
+                if total_cost + mu <= budget:
+                    total_cost += mu
+                    perturb_set.append((i, xi))
+                else:
+                    break
             
