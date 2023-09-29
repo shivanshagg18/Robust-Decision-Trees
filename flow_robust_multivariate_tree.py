@@ -37,9 +37,10 @@ class RDT(ClassifierMixin, BaseEstimator):
         Time (in seconds) taken to fit the model.
     """
 
-    def __init__(self, time_limit=None, verbose=False):
+    def __init__(self, time_limit=None, verbose=False, epsilon=0.005):
         self.time_limit = time_limit
         self.verbose = verbose
+        self.epsilon = epsilon
 
     def fit(self, X, y):
         """Train a decision tree using a MIP model.
@@ -156,9 +157,14 @@ class RDT(ClassifierMixin, BaseEstimator):
         a_cap = model.addVars(branch_nodes, n_features, lb=0, ub=1)
         b = model.addVars(branch_nodes, lb=-1, ub=1)
 
-        t = model.addVars(n_samples, ub=1)
+        t = model.addVars(n_samples, vtype=GRB.BINARY, ub=1)
 
         model._vars = c, a, a_cap, b, t
+
+        lam = np.array([0.1 for i in n_features])
+        budget = 10
+        model._cost = lam, budget
+        model._epsilon = self.epsilon
 
         obj_fn = t.sum()
         model.setObjective(obj_fn, GRB.MAXIMIZE)
@@ -167,11 +173,6 @@ class RDT(ClassifierMixin, BaseEstimator):
             c.sum(n, "*") == 1
             for n in leaf_nodes
         ))
-
-        # Why do we have this constraint?
-        #model.addConstrs((
-        #   t.sum() <= 1
-        #))
 
         model.addConstrs((
             a_cap.sum(n, "*") <= 1
@@ -214,18 +215,9 @@ class RDT(ClassifierMixin, BaseEstimator):
             left_ancestors, right_ancestors = model._ancestors
             n_samples, n_features = X.shape
             classes = unique_labels(y)
+            lam, budget = model._cost
+            epsilon = model._epsilon
 
-            # TODO make these class attributes (like time_limit and verbose)
-            # To make our code scikit-learn compatible, I suggest setting them in __init__
-            # Then in _mip_model, you can store lambda and budget in the model (e.g., model._X_y = X, y)
-            # This is necessary because Gurobi insists callbacks accept exactly two arguments: model and where
-            # So anytime the callback needs access to other things, we have to pass them using the model
-            lam = np.array([0.1 for i in n_features])
-            budget = 10
-
-            # I think it's easier to take advantage of how Python sorts a list of tuples (lexicographically)
-            #mu = np.array([[i, 0] for i in n_samples])
-            #perturb = np.array([[0 for j in n_features] for i in n_samples])
             mu_i_xi = []  # List of tuples (mu, i, xi), one for every sample
 
             for i, x in enumerate(X):
@@ -237,15 +229,13 @@ class RDT(ClassifierMixin, BaseEstimator):
                         j = 2*j + 1
                     else:
                         j = 2*j
-                # To check binary variables, it's better to compare with 0.5 due to numerical issues
-                #if c_vals[j, y[i]] != 1:
                 # This is confusing to me, why do we continue if c == 0, shouldn't it be c == 1 (sample is correctly classified)?
                 if c_vals[j, y[i]] < 0.5:
                     continue
 
                 best_mu = float('inf')
+                best_xi = [0 for j in n_features]
                 for t in leaf_nodes:
-                    #if np.argmax(c_vals[k]) == y[i]:
                     if c_vals[t, y[i]] > 0.5:
                         continue
 
@@ -268,57 +258,23 @@ class RDT(ClassifierMixin, BaseEstimator):
                         for n in range(n_features)
                     ))
                     
-                    """Not wrong, but could be implemented more clearly using ancestor sets
-                    parent = k // 2
-                    child = k % 2
-                    while parent >= 1:
-                        if child == 0:
-                            sub_model.addConstrs((
-                                np.dot(a_vals[parent], perturb_var) < b_vals[parent] - np.dot(a_vals[parent], x)
-                            ))
-                        else:
-                            sub_model.addConstrs((
-                                np.dot(a_vals[parent], perturb_var) >= b_vals[parent] - np.dot(a_vals[parent], x)
-                            ))
-                        
-                        parent = parent // 2
-                        child = parent % 2
-                    """
                     sub_model.addConstrs((
-                        gp.quicksum(a_vals[t,j], perturb_var[j] for j in range(n_features)) <= b_vals[t] - sum(a_vals[t,j]*x[j] for j in range(n_features))
-                        for t in left_ancestors[t]
+                        np.dot(a_vals[ancestor], perturb_var) <= b_vals[ancestor] - np.dot(a_vals[ancestor], x)
+                        for ancestor in left_ancestors[t]
                     ))
-                    
-                    epsilon = 0.005  # TODO (not urgent, skip if you want) make this an attribute (like time_limit and verbose)
                     sub_model.addConstrs((
-                        gp.quicksum(a_vals[t,j], perturb_var[j] for j in range(n_features)) >= b_vals[t] + epsilon - sum(a_vals[t,j]*x[j] for j in range(n_features))
-                        for t in right_ancestors[t]
+                        np.dot(a_vals[ancestor], perturb_var) >= b_vals[ancestor] + epsilon - np.dot(a_vals[ancestor], x)
+                        for ancestor in right_ancestors[t]
                     ))
 
                     sub_model.optimize()
 
-                    #opt_sol = sub_model.getVars()
                     if sub_model.objVal < best_mu:
                         best_mu = sub_model.objVal
                         best_xi = sub_model.getAttr('X', perturb_var)
-                        #mu[i, 1] = min_mu
-                        #for v in opt_sol:
-                        #    if v.varName == "perturb_var":
-                        #        perturb[i] = v.x
                 
                 mu_i_xi.append((best_mu, i, best_xi))
             
-            """Redone using mu_xi
-            mu = mu[mu[:, 1].argsort()]
-            perturb_set = np.array([])
-            total_cost = 0
-            for i in n_samples:
-                if total_cost + mu[i, 1] <= budget:
-                    total_cost += mu[i, 1]
-                    perturb_set.append(mu[i, 0])
-                else:
-                    break
-            """
             perturb_set = []
             total_cost = 0
             for mu, i, xi in sorted(mu_i_xi):
