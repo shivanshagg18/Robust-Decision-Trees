@@ -175,9 +175,6 @@ class RDT(ClassifierMixin, BaseEstimator):
                 a_cap[n, i].Start = 1/n_features
                 a[n, i].Start = 1/n_features
 
-        # for n in branch_nodes:
-        #     b[n].Start = random.uniform(0, 1)
-
         lam = np.array([1 for i in range(n_features)])
         budget = 0.5
         model._cost = lam, budget
@@ -190,11 +187,6 @@ class RDT(ClassifierMixin, BaseEstimator):
             c.sum(n, "*") == 1
             for n in leaf_nodes
         ))
-
-        # model.addConstrs((
-        #     c.sum("*", n) >= 1
-        #     for n in classes
-        # ))
 
         model.addConstrs((
             a_cap.sum(n, "*") <= 1
@@ -243,7 +235,7 @@ class RDT(ClassifierMixin, BaseEstimator):
 
         stop = True
 
-        while(True):
+        while(stop == True):
             a_vals = model.getAttr('X', a)
             b_vals = model.getAttr('X', b)
             c_vals = model.getAttr('X', c)
@@ -319,18 +311,8 @@ class RDT(ClassifierMixin, BaseEstimator):
                         best_xi[f] = 0.0
                     perturb_set.append([i, best_xi])
 
-            # if len(perturb_set) == 0:
-            #     for mu, i, xi in sorted(mu_i_xi):
-            #         temp = {}
-            #         for f in range(n_features):
-            #             temp[f] = 0.0
-            #         perturb_set.append([i, temp])
-
             print("Perturbation: ", mu_i_xi)
             print("Selected data points: ", perturb_set)
-            # print(a_vals)
-            # print(b_vals)
-            # print(c_vals)
 
             acc_count = 0
             for x_perturb in perturb_set:
@@ -347,30 +329,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                 if c_vals[t, y[x_perturb[0]]] > 0.5:
                     acc_count += 1
 
-            if model.objVal <= acc_count:
-                acc_count = 0
-                for i, x in enumerate(X):
-                    t = 1
-                    while t <= len(branch_nodes):
-                        if np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t]:
-                            t = 2*t + 1
-                        else:
-                            t = 2*t
-                            
-                    if c_vals[t, y[i]] > 0.5:
-                        acc_count += 1
-
-                # stop = (model.objVal > acc_count)
-
-                print("a: ", a_vals)
-                print("b: ", b_vals)
-                print("c: ", c_vals)
-                print("Accuracy: ", acc_count/len(X))
-                print("Objective Value: ", model.objVal)
-                print("---------------------------------------------------------")
-                print()
-                break
-            else:
+            if model.objVal > acc_count:
                 benders_cut_rhs = gp.LinExpr()
                 for x_perturb in perturb_set:
                     x = np.copy(X[x_perturb[0]])
@@ -389,36 +348,34 @@ class RDT(ClassifierMixin, BaseEstimator):
                             model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
                             benders_cut_rhs.add(gamma[1])
                             t = 2*t
-                    # print(c[t, y[x_perturb[0]]])
                     benders_cut_rhs.add(c[t, y[x_perturb[0]]])
 
                 model.addConstr(g.sum() <= benders_cut_rhs)
-                # print(benders_cut_rhs)
                 model.optimize()
 
-                a_vals = model.getAttr('X', a)
-                b_vals = model.getAttr('X', b)
-                c_vals = model.getAttr('X', c)
+            stop = (model.objVal > acc_count)
 
-                acc_count = 0
-                for i, x in enumerate(X):
-                    t = 1
-                    while t <= len(branch_nodes):
-                        if np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t]:
-                            t = 2*t + 1
-                        else:
-                            t = 2*t
-                            
-                    if c_vals[t, y[i]] > 0.5:
-                        acc_count += 1
+            a_vals = model.getAttr('X', a)
+            b_vals = model.getAttr('X', b)
+            c_vals = model.getAttr('X', c)
 
-                # stop = (model.objVal > acc_count)
+            acc_count = 0
+            for i, x in enumerate(X):
+                t = 1
+                while t <= len(branch_nodes):
+                    if np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t]:
+                        t = 2*t + 1
+                    else:
+                        t = 2*t
+                        
+                if c_vals[t, y[i]] > 0.5:
+                    acc_count += 1
 
-                print("a: ", a_vals)
-                print("b: ", b_vals)
-                print("c: ", c_vals)
-                print("Accuracy: ", acc_count/len(X))
-                print("Objective Value: ", model.objVal)
-                print("---------------------------------------------------------")
-                print()
+            print("a: ", a_vals)
+            print("b: ", b_vals)
+            print("c: ", c_vals)
+            print("Accuracy: ", acc_count/len(X))
+            print("Objective Value: ", model.objVal)
+            print("---------------------------------------------------------")
+            print()
             
