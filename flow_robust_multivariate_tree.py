@@ -385,11 +385,30 @@ class RDT(ClassifierMixin, BaseEstimator):
                 if c_vals[t, y[i]] > 0.5:
                     acc_count += 1
 
-            print("a: ", a_vals)
-            print("b: ", b_vals)
-            print("c: ", c_vals)
-            print("a_cap: ", model.getAttr('X', a_cap))
-            print("b_cap: ", model.getAttr('X', b_cap))
+            print()
+            print("Hyperplanes:")
+            for n in branch_nodes:
+                temp = str(n) + ": "
+                for i in range(n_features):
+                    temp = temp + str(a_vals[n, i]) + " + "
+                temp = temp[:-3] + " <= " + str(b_vals[n])
+                print(temp)
+
+            print()
+            print("Leaf nodes:")
+            for n in leaf_nodes:
+                temp = str(n) + ": "
+                for i in classes:
+                    if c_vals[n, i] == 1:
+                        temp = temp + str(i)
+                print(temp)
+
+            print()
+            # print("a: ", a_vals)
+            # print("b: ", b_vals)
+            # print("c: ", c_vals)
+            # print("a_cap: ", model.getAttr('X', a_cap))
+            # print("b_cap: ", model.getAttr('X', b_cap))
             print("Accuracy: ", acc_count/len(X))
             print("Objective Value: ", model.objVal)
             print("---------------------------------------------------------")
