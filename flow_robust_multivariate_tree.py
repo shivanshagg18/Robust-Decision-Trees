@@ -249,6 +249,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         classes = unique_labels(y)
         lam, budget = model._cost
         epsilon = model._epsilon
+        gamma_con = 0
 
         while(True):
             a_vals = model.getAttr('X', a)
@@ -352,7 +353,10 @@ class RDT(ClassifierMixin, BaseEstimator):
                     acc_count += 1
 
             if model.objVal > acc_count:
+                print()
+                print("Constraints added:")
                 benders_cut_rhs = gp.LinExpr()
+                temp = "g <= "
                 for x_perturb in perturb_set:
                     x = np.copy(X[x_perturb[0]])
                     for j in x_perturb[1].keys():
@@ -360,17 +364,33 @@ class RDT(ClassifierMixin, BaseEstimator):
                     t = 1
                     while t <= len(branch_nodes):
                         gamma = model.addVars([1], vtype=GRB.BINARY)
+                        gamma_con += 1
+                        temp += "gamma_" + str(gamma_con) + " + "
                         if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
+                            temp_2 = "gamma_" + str(gamma_con) + " == 1 >> "
+                            for f in range(n_features):
+                                temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
+
+                            temp_2 = temp_2[:-3] + " <= " + "b[" + str(t) + "]"
+                            print(temp_2)
                             model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
                             model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
                             t = 2*t + 1
                         else:
+                            temp_2 = "gamma_" + str(gamma_con) + " == 1 >> "
+                            for f in range(n_features):
+                                temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
+
+                            temp_2 = temp_2[:-3] + " >= " + "b[" + str(t) + "] +  epsilon"
+                            print(temp_2)
                             model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
                             model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
                             t = 2*t
                         benders_cut_rhs.add(gamma[1])
                     benders_cut_rhs.add(c[t, y[x_perturb[0]]])
 
+                temp = temp + str(n_samples - len(perturb_set))
+                print(temp)
                 model.addConstr(g.sum() <= benders_cut_rhs + n_samples - len(perturb_set))
                 model.optimize()
             else:
