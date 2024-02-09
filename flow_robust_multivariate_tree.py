@@ -326,8 +326,15 @@ class RDT(ClassifierMixin, BaseEstimator):
                 #         best_xi[f] = 0.0
                 #     perturb_set.append([i, best_xi])
 
-            print("Perturbation: ", mu_i_xi)
-            print("Selected data points: ", perturb_set)
+            print("Perturbation:")
+            for per in mu_i_xi:
+                print("Data point " + str(per[1]) + ": " + str(per[2]))
+
+            print()
+            print("Selected data points:")
+            for per in perturb_set:
+                print("Data point " + str(per[0]) + ": " + str(per[1]))
+
 
             acc_count = n_samples - len(perturb_set)
             for x_perturb in perturb_set:
