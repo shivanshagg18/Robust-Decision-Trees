@@ -159,10 +159,11 @@ class RDT(ClassifierMixin, BaseEstimator):
         a = model.addVars(branch_nodes, n_features, lb=-1, ub=1, name="a")
         a_cap = model.addVars(branch_nodes, n_features, lb=0, ub=1, name="a_cap")
         b = model.addVars(branch_nodes, lb=-1, ub=1, name="b")
+        b_cap = model.addVars(branch_nodes, lb=0, ub=1, name="b_cap")
 
         g = model.addVars(n_samples, vtype=GRB.BINARY, ub=1, name="t")
 
-        model._vars = c, a, a_cap, b, g
+        model._vars = c, a, a_cap, b, b_cap, g
 
         for label in classes:
             if t % len(classes) == label:
@@ -194,15 +195,31 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         model.addConstrs((
-            a_cap[n, i] >= a[n, i]
+            a_cap[n, i] == gp.abs_(a[n, i])
             for n in branch_nodes
             for i in range(n_features)
         ))
 
+        # model.addConstrs((
+        #     a_cap[n, i] >= a[n, i]
+        #     for n in branch_nodes
+        #     for i in range(n_features)
+        # ))
+
+        # model.addConstrs((
+        #     a_cap[n, i] >= -a[n, i]
+        #     for n in branch_nodes
+        #     for i in range(n_features)
+        # ))
+
         model.addConstrs((
-            a_cap[n, i] >= -a[n, i]
+            b_cap[n] == gp.abs_(b[n])
             for n in branch_nodes
-            for i in range(n_features)
+        ))
+
+        model.addConstrs((
+            b_cap[n] >= 2*self.epsilon
+            for n in branch_nodes
         ))
 
         return model
@@ -223,7 +240,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         """Gurobi callback. Adds lazy cuts."""
         model = self.model_
 
-        c, a, a_cap, b, g = model._vars
+        c, a, a_cap, b, b_cap, g = model._vars
 
         X, y = model._X_y
         branch_nodes, leaf_nodes, nodes, arcs = model._flow_graph
@@ -233,9 +250,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         lam, budget = model._cost
         epsilon = model._epsilon
 
-        stop = True
-
-        while(stop == True):
+        while(True):
             a_vals = model.getAttr('X', a)
             b_vals = model.getAttr('X', b)
             c_vals = model.getAttr('X', c)
@@ -249,7 +264,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                 
                 t = 1
                 while t <= len(branch_nodes):
-                    if np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t]:
+                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -305,23 +320,23 @@ class RDT(ClassifierMixin, BaseEstimator):
                 if total_cost + mu <= budget:
                     total_cost += mu
                     perturb_set.append([i, xi])
-                else:
-                    best_xi = {}
-                    for f in range(n_features):
-                        best_xi[f] = 0.0
-                    perturb_set.append([i, best_xi])
+                # else:
+                #     best_xi = {}
+                #     for f in range(n_features):
+                #         best_xi[f] = 0.0
+                #     perturb_set.append([i, best_xi])
 
             print("Perturbation: ", mu_i_xi)
             print("Selected data points: ", perturb_set)
 
-            acc_count = 0
+            acc_count = n_samples - len(perturb_set)
             for x_perturb in perturb_set:
                 x = np.copy(X[x_perturb[0]])
                 for j in x_perturb[1].keys():
                     x[j] += x_perturb[1][j]
                 t = 1
                 while t <= len(branch_nodes):
-                    if np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t]:
+                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -338,22 +353,21 @@ class RDT(ClassifierMixin, BaseEstimator):
                     t = 1
                     while t <= len(branch_nodes):
                         gamma = model.addVars([1], vtype=GRB.BINARY)
-                        if np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t]:
+                        if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
                             model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
                             model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
-                            benders_cut_rhs.add(gamma[1])
                             t = 2*t + 1
                         else:
                             model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
                             model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
-                            benders_cut_rhs.add(gamma[1])
                             t = 2*t
+                        benders_cut_rhs.add(gamma[1])
                     benders_cut_rhs.add(c[t, y[x_perturb[0]]])
 
-                model.addConstr(g.sum() <= benders_cut_rhs)
+                model.addConstr(g.sum() <= benders_cut_rhs + n_samples - len(perturb_set))
                 model.optimize()
-
-            stop = (model.objVal > acc_count)
+            else:
+                break
 
             a_vals = model.getAttr('X', a)
             b_vals = model.getAttr('X', b)
@@ -363,7 +377,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             for i, x in enumerate(X):
                 t = 1
                 while t <= len(branch_nodes):
-                    if np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t]:
+                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -374,6 +388,8 @@ class RDT(ClassifierMixin, BaseEstimator):
             print("a: ", a_vals)
             print("b: ", b_vals)
             print("c: ", c_vals)
+            print("a_cap: ", model.getAttr('X', a_cap))
+            print("b_cap: ", model.getAttr('X', b_cap))
             print("Accuracy: ", acc_count/len(X))
             print("Objective Value: ", model.objVal)
             print("---------------------------------------------------------")
