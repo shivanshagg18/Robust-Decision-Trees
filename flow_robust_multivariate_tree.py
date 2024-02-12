@@ -219,7 +219,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         model.addConstrs((
-            b_cap[n] >= 2*self.epsilon
+            b_cap[n] >= self.epsilon + (self.epsilon/10)
             for n in branch_nodes
         ))
 
