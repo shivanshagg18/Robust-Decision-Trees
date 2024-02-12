@@ -38,11 +38,12 @@ class RDT(ClassifierMixin, BaseEstimator):
         Time (in seconds) taken to fit the model.
     """
 
-    def __init__(self, time_limit=None, verbose=0, epsilon=0.01, max_depth=1):
+    def __init__(self, time_limit=None, verbose=0, epsilon=0.01, max_depth=1, budget=0.5):
         self.max_depth = max_depth
         self.time_limit = time_limit
         self.verbose = verbose
         self.epsilon = epsilon
+        self.budget = budget
 
     def fit(self, X, y):
         """Train a decision tree using a MIP model.
@@ -177,7 +178,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                 a[n, i].Start = 1/n_features
 
         lam = np.array([1 for i in range(n_features)])
-        budget = 0.5
+        budget = self.budget
         model._cost = lam, budget
         model._epsilon = self.epsilon
 
@@ -321,11 +322,11 @@ class RDT(ClassifierMixin, BaseEstimator):
                 if total_cost + mu <= budget:
                     total_cost += mu
                     perturb_set.append([i, xi])
-                # else:
-                #     best_xi = {}
-                #     for f in range(n_features):
-                #         best_xi[f] = 0.0
-                #     perturb_set.append([i, best_xi])
+                else:
+                    best_xi = {}
+                    for f in range(n_features):
+                        best_xi[f] = 0.0
+                    perturb_set.append([i, best_xi])
 
             print("Perturbation:")
             for per in mu_i_xi:
