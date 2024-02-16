@@ -389,9 +389,10 @@ class RDT(ClassifierMixin, BaseEstimator):
                             t = 2*t
                         benders_cut_rhs.add(gamma[1])
                     benders_cut_rhs.add(c[t, y[x_perturb[0]]])
+                    temp = temp + "c[" + str(t) + "," + str(y[x_perturb[0]]) + "] + "
 
-                temp = temp + str(n_samples - len(perturb_set))
-                print(temp)
+                # temp = temp + str(n_samples - len(perturb_set))
+                print(temp[-3:])
                 model.addConstr(g.sum() <= benders_cut_rhs + n_samples - len(perturb_set))
                 model.optimize()
             else:
