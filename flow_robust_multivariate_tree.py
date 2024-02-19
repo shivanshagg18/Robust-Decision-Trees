@@ -228,8 +228,8 @@ class RDT(ClassifierMixin, BaseEstimator):
     def _set_gurobi_params(self):
         """Set Gurobi parameters."""
         model = self.model_
-        model.Params.LogToConsole = self.verbose
-        model.Params.OutputFlag = self.verbose
+        model.Params.LogToConsole = False
+        model.Params.OutputFlag = False
         if self.time_limit is not None:
             model.Params.TimeLimit = self.time_limit
         model.Params.MIPGap = 0.0
@@ -328,14 +328,15 @@ class RDT(ClassifierMixin, BaseEstimator):
                         best_xi[f] = 0.0
                     perturb_set.append([i, best_xi])
 
-            print("Perturbation:")
-            for per in mu_i_xi:
-                print("Data point " + str(per[1]) + ": " + str(per[2]))
+            if self.verbose:
+                print("Perturbation:")
+                for per in mu_i_xi:
+                    print("Data point " + str(per[1]) + ": " + str(per[2]))
 
-            print()
-            print("Selected data points:")
-            for per in perturb_set:
-                print("Data point " + str(per[0]) + ": " + str(per[1]))
+                print()
+                print("Selected data points:")
+                for per in perturb_set:
+                    print("Data point " + str(per[0]) + ": " + str(per[1]))
 
 
             acc_count = n_samples - len(perturb_set)
@@ -354,8 +355,9 @@ class RDT(ClassifierMixin, BaseEstimator):
                     acc_count += 1
 
             if model.objVal > acc_count:
-                print()
-                print("Constraints added:")
+                if self.verbose:
+                    print()
+                    print("Constraints added:")
                 benders_cut_rhs = gp.LinExpr()
                 temp = "g <= "
                 for x_perturb in perturb_set:
@@ -373,7 +375,8 @@ class RDT(ClassifierMixin, BaseEstimator):
                                 temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
 
                             temp_2 = temp_2[:-3] + " <= " + "b[" + str(t) + "]"
-                            print(temp_2)
+                            if self.verbose:
+                                print(temp_2)
                             model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
                             model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
                             t = 2*t + 1
@@ -383,7 +386,8 @@ class RDT(ClassifierMixin, BaseEstimator):
                                 temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
 
                             temp_2 = temp_2[:-3] + " >= " + "b[" + str(t) + "] +  epsilon"
-                            print(temp_2)
+                            if self.verbose:
+                                print(temp_2)
                             model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
                             model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
                             t = 2*t
@@ -392,7 +396,8 @@ class RDT(ClassifierMixin, BaseEstimator):
                     temp = temp + "c[" + str(t) + "," + str(y[x_perturb[0]]) + "] + "
 
                 # temp = temp + str(n_samples - len(perturb_set))
-                print(temp[-3:])
+                if self.verbose:
+                    print(temp[-3:])
                 model.addConstr(g.sum() <= benders_cut_rhs + n_samples - len(perturb_set))
                 model.optimize()
             else:
@@ -414,25 +419,26 @@ class RDT(ClassifierMixin, BaseEstimator):
                 if c_vals[t, y[i]] > 0.5:
                     acc_count += 1
 
-            print()
-            print("Hyperplanes:")
-            for n in branch_nodes:
-                temp = str(n) + ": "
-                for i in range(n_features):
-                    temp = temp + str(a_vals[n, i]) + " + "
-                temp = temp[:-3] + " <= " + str(b_vals[n])
-                print(temp)
+            if self.verbose:
+                print()
+                print("Hyperplanes:")
+                for n in branch_nodes:
+                    temp = str(n) + ": "
+                    for i in range(n_features):
+                        temp = temp + str(a_vals[n, i]) + " + "
+                    temp = temp[:-3] + " <= " + str(b_vals[n])
+                    print(temp)
 
-            print()
-            print("Leaf nodes:")
-            for n in leaf_nodes:
-                temp = str(n) + ": "
-                for i in classes:
-                    if c_vals[n, i] == 1:
-                        temp = temp + str(i)
-                print(temp)
+                print()
+                print("Leaf nodes:")
+                for n in leaf_nodes:
+                    temp = str(n) + ": "
+                    for i in classes:
+                        if c_vals[n, i] == 1:
+                            temp = temp + str(i)
+                    print(temp)
 
-            print()
+                print()
             # print("a: ", a_vals)
             # print("b: ", b_vals)
             # print("c: ", c_vals)
