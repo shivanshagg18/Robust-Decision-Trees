@@ -24,15 +24,15 @@ class RDT(ClassifierMixin, BaseEstimator):
         self.set_gurobi_params(self.first)
         self.first.optimize()
 
-        self.second = self.second_model(self.first)
-        self.set_gurobi_params(self.second)
-        self.second.optimize()
+        # self.second = self.second_model(self.first)
+        # self.set_gurobi_params(self.second)
+        # self.second.optimize()
 
-        self.third = self.third_model(self.first, self.second)
+        self.third = self.third_model(self.first)
         self.set_gurobi_params(self.third)
         self.third.optimize()
 
-        # self.cuts()
+        self.cuts()
         
         return self
     
@@ -115,11 +115,6 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         model.addConstrs((
-            b_cap[n] >= self.epsilon + (self.epsilon/10)
-            for n in branch_nodes
-        ))
-
-        model.addConstrs((
             w[i, n] == w[i, 2*n] + w[i, 2*n + 1]
             for i in n_index
             for n in branch_nodes
@@ -149,7 +144,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         model.addConstrs((
-            (gamma[i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1]) <= b[n//2])
+            (gamma[i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1]) <= b[n//2] -  self.epsilon)
             for i in n_index
             for n in left_nodes
         ))
@@ -161,7 +156,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         model.addConstrs((
-            (gamma[i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1]) <= b[n//2])
+            (gamma[i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1]) <= b[n//2] -  self.epsilon)
             for i in n_index
             for n in right_nodes
         ))
@@ -175,67 +170,63 @@ class RDT(ClassifierMixin, BaseEstimator):
         return model
     
 
-    def second_model(self, first_model):
-        X, y_class, n_index = first_model._X_y_n
-        branch_nodes, leaf_nodes, nodes, arcs = first_model._flow_graph
-        left_ancestors, right_ancestors, left_nodes, right_nodes = first_model._ancestors
-        c, a, a_cap, b, b_cap, w, z, gamma = first_model._vars
+    # def second_model(self, first_model):
+    #     X, y_class, n_index = first_model._X_y_n
+    #     branch_nodes, leaf_nodes, nodes, arcs = first_model._flow_graph
+    #     left_ancestors, right_ancestors, left_nodes, right_nodes = first_model._ancestors
+    #     c, a, a_cap, b, b_cap, w, z, gamma = first_model._vars
 
-        gamma_vals = first_model.getAttr('X', gamma)
-        c_vals = first_model.getAttr('X', c)
+    #     gamma_vals = first_model.getAttr('X', gamma)
+    #     c_vals = first_model.getAttr('X', c)
 
-        model = gp.Model()
-        y = model.addVars(n_index, nodes, vtype=GRB.BINARY, name="y")
-        p = model.addVars(n_index, nodes, vtype=GRB.BINARY, name="p")
-        q = model.addVars(n_index, leaf_nodes, vtype=GRB.BINARY, name="q")
+    #     model = gp.Model()
+    #     y = model.addVars(n_index, nodes, vtype=GRB.BINARY, name="y")
+    #     p = model.addVars(n_index, nodes, vtype=GRB.BINARY, name="p")
+    #     q = model.addVars(n_index, leaf_nodes, vtype=GRB.BINARY, name="q")
 
-        model._vars = y, p, q
+    #     model._vars = y, p, q
 
-        obj_fn = gp.LinExpr()
-        for i in n_index:
-            for n in leaf_nodes:
-                obj_fn.add(c_vals[n, y_class[i-1]]*q[i, n])
+    #     obj_fn = gp.LinExpr()
+    #     for i in n_index:
+    #         for n in leaf_nodes:
+    #             obj_fn.add(c_vals[n, y_class[i-1]]*q[i, n])
 
-            for n in nodes:
-                obj_fn.add(gamma_vals[i, n]*p[i, n])
+    #         for n in nodes:
+    #             obj_fn.add(gamma_vals[i, n]*p[i, n])
 
-        model.setObjective(obj_fn, GRB.MINIMIZE)
+    #     model.setObjective(obj_fn, GRB.MINIMIZE)
 
-        model.addConstrs((
-            y[i, n//2] - y[i, n] + p[i, n] >= 0
-            for i in n_index
-            for n in left_nodes
-        ))
+    #     model.addConstrs((
+    #         y[i, n//2] - y[i, n] + p[i, n] >= 0
+    #         for i in n_index
+    #         for n in left_nodes
+    #     ))
 
-        model.addConstrs((
-            y[i, n//2] - y[i, n] + p[i, n] >= 0
-            for i in n_index
-            for n in right_nodes
-        ))
+    #     model.addConstrs((
+    #         y[i, n//2] - y[i, n] + p[i, n] >= 0
+    #         for i in n_index
+    #         for n in right_nodes
+    #     ))
 
-        model.addConstrs((
-            -y[i, 1] + p[i, 1] >= 0
-            for i in n_index
-        ))
+    #     model.addConstrs((
+    #         -y[i, 1] + p[i, 1] >= 0
+    #         for i in n_index
+    #     ))
 
-        model.addConstrs((
-            y[i, n] + q[i, n] >= 1
-            for i in n_index
-            for n in leaf_nodes
-        ))
+    #     model.addConstrs((
+    #         y[i, n] + q[i, n] >= 1
+    #         for i in n_index
+    #         for n in leaf_nodes
+    #     ))
 
-        return model
+    #     return model
     
-    def third_model(self, first_model, second_model):
+    def third_model(self, first_model):
         X, y_class, n_index = first_model._X_y_n
         branch_nodes, leaf_nodes, nodes, arcs = first_model._flow_graph
         left_ancestors, right_ancestors, left_nodes, right_nodes = first_model._ancestors
         n_samples, n_features = X.shape
         classes = unique_labels(y_class)
-
-        # y, p, q = second_model._vars
-        # p_vals = second_model.getAttr('X', p)
-        # q_vals = second_model.getAttr('X', q)
 
         p_vals = np.zeros((n_samples+1, len(nodes)+1))
         q_vals = np.zeros((n_samples+1, len(nodes)+1))
@@ -260,9 +251,11 @@ class RDT(ClassifierMixin, BaseEstimator):
 
         for n in branch_nodes:
             b[n].Start = b_vals[n]
+            b_cap[n].Start = np.abs(b_vals[n])
 
             for f in range(n_features):
                 a[n, f].Start = a_vals[n, f]
+                a_cap[n, f].Start = np.abs(a_vals[n, f])
 
         for n in leaf_nodes:
             for cls in classes:
@@ -317,17 +310,12 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         model.addConstrs((
-            b_cap[n] >= self.epsilon + (self.epsilon/10)
-            for n in branch_nodes
-        ))
-
-        model.addConstrs((
             gamma[i, 1] == 1
             for i in n_index
         ))
 
         model.addConstrs((
-            (gamma[i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1]) <= b[n//2])
+            (gamma[i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1]) <= b[n//2] -  self.epsilon)
             for i in n_index
             for n in left_nodes
         ))
@@ -339,7 +327,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         model.addConstrs((
-            (gamma[i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1]) <= b[n//2])
+            (gamma[i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1]) <= b[n//2] -  self.epsilon)
             for i in n_index
             for n in right_nodes
         ))
@@ -421,7 +409,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                     ))
 
                     sub_model.addConstrs((
-                        gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) <= b_vals[ancestor] - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
+                        gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) <= b_vals[ancestor] - epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
                         for ancestor in left_ancestors[t]
                     ))
                     sub_model.addConstrs((
@@ -502,7 +490,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                             if self.verbose:
                                 print(temp_2)
                             
-                            model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
+                            model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t] - epsilon))
                             model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
                             t = 2*t + 1
                         else:
@@ -515,7 +503,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                                 print(temp_2)
                             
                             model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
-                            model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
+                            model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t] - epsilon))
                             t = 2*t
                         
                         benders_cut_rhs.add(gamma[1])
