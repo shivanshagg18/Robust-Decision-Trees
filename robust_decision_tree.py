@@ -33,7 +33,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         self.set_gurobi_params(self.third)
         self.third.optimize()
 
-        # self.cuts()
+        self.cuts()
         
         return self
     
@@ -87,7 +87,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         z = model.addVars(n_index, leaf_nodes, vtype=GRB.BINARY, name="z")
         gamma = model.addVars(self.num_cuts, n_index, nodes, vtype=GRB.BINARY, name="z")
 
-        perturb = np.zeros((self.num_cuts, n_features))
+        perturb = np.zeros((self.num_cuts, n_samples, n_features))
 
         model._vars = c, a, a_cap, b, b_cap, w, z, gamma, perturb
 
@@ -136,12 +136,13 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         for j in range(self.num_cuts):
-            if j != 0:
-                peturb_temp = np.random.dirichlet(np.ones(n_features),size=1)[0]*self.budget/n_samples
-                perturb[j] = peturb_temp
-            else:
-                peturb_temp = np.zeros((n_features))
-                perturb[j] = peturb_temp 
+            for i in range(n_samples):
+                if j != 0:
+                    peturb_temp = np.random.dirichlet(np.ones(n_features),size=1)[0]*self.budget/n_samples
+                    perturb[j, i] = peturb_temp
+                else:
+                    peturb_temp = np.zeros((n_features))
+                    perturb[j, i] = peturb_temp 
 
             model.addConstrs((
                 w[i, n] <= gamma[j, i, n]
@@ -155,25 +156,25 @@ class RDT(ClassifierMixin, BaseEstimator):
             ))
 
             model.addConstrs((
-                (gamma[j, i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + peturb_temp) <= b[n//2] -  self.epsilon)
+                (gamma[j, i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb[j, i-1]) <= b[n//2] -  self.epsilon)
                 for i in n_index
                 for n in left_nodes
             ))
 
             model.addConstrs((
-                (gamma[j, i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + peturb_temp) >= b[n//2] + self.epsilon)
+                (gamma[j, i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb[j, i-1]) >= b[n//2] + self.epsilon)
                 for i in n_index
                 for n in left_nodes
             ))
 
             model.addConstrs((
-                (gamma[j, i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + peturb_temp) <= b[n//2] -  self.epsilon)
+                (gamma[j, i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb[j, i-1]) <= b[n//2] -  self.epsilon)
                 for i in n_index
                 for n in right_nodes
             ))
 
             model.addConstrs((
-                (gamma[j, i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + peturb_temp) >= b[n//2] + self.epsilon)
+                (gamma[j, i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb[j, i-1]) >= b[n//2] + self.epsilon)
                 for i in n_index
                 for n in right_nodes
             ))
@@ -277,7 +278,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             for i, x in enumerate(X):
                 t = 1
                 while t <= len(branch_nodes):
-                    if (np.dot([a_vals[t, f] for f in range(n_features)], x + perturb[j]) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x + perturb[j]) - b_vals[t] - self.epsilon) <= 0.0001):
+                    if (np.dot([a_vals[t, f] for f in range(n_features)], x + perturb[j, i]) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x + perturb[j, i]) - b_vals[t] - self.epsilon) <= 0.0001):
                         p_vals[j, i+1, 2*t] = 1
                         t = 2*t + 1
                     else:
@@ -322,33 +323,31 @@ class RDT(ClassifierMixin, BaseEstimator):
         ))
 
         for j in range(self.num_cuts):
-            perturb_temp = perturb[j]
-
             model.addConstrs((
                 gamma[j, i, 1] == 1
                 for i in n_index
             ))
 
             model.addConstrs((
-                (gamma[j, i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb_temp) <= b[n//2] -  self.epsilon)
+                (gamma[j, i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb[j, i-1]) <= b[n//2] -  self.epsilon)
                 for i in n_index
                 for n in left_nodes
             ))
 
             model.addConstrs((
-                (gamma[j, i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb_temp) >= b[n//2] + self.epsilon)
+                (gamma[j, i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb[j, i-1]) >= b[n//2] + self.epsilon)
                 for i in n_index
                 for n in left_nodes
             ))
 
             model.addConstrs((
-                (gamma[j, i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb_temp) <= b[n//2] -  self.epsilon)
+                (gamma[j, i, n] == 0) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb[j, i-1]) <= b[n//2] -  self.epsilon)
                 for i in n_index
                 for n in right_nodes
             ))
 
             model.addConstrs((
-                (gamma[j, i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb_temp) >= b[n//2] + self.epsilon)
+                (gamma[j, i, n] == 1) >> (np.dot([a[n//2, f] for f in range(n_features)], X[i-1] + perturb[j, i-1]) >= b[n//2] + self.epsilon)
                 for i in n_index
                 for n in right_nodes
             ))
