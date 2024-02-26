@@ -265,7 +265,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         for i, x in enumerate(X):
             t = 1
             while t <= len(branch_nodes):
-                if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.001):
+                if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
                     p_vals[i+1, 2*t] = 1
                     t = 2*t + 1
                 else:
@@ -378,7 +378,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                 
                 t = 1
                 while t <= len(branch_nodes):
-                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.001):
+                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -409,11 +409,17 @@ class RDT(ClassifierMixin, BaseEstimator):
                     ))
 
                     sub_model.addConstrs((
-                        gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) <= b_vals[ancestor] - epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
+                        gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) <= b_vals[ancestor] - 2*epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
                         for ancestor in left_ancestors[t]
                     ))
+
+                    # sub_model.addConstrs((
+                    #     gp.abs_(gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) - b_vals[ancestor] + gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))) >= epsilon + (epsilon/10)
+                    #     for ancestor in nodes
+                    # ))
+
                     sub_model.addConstrs((
-                        gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) >= b_vals[ancestor] + epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
+                        gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) >= b_vals[ancestor] + 2*epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
                         for ancestor in right_ancestors[t]
                     ))
                     
@@ -458,13 +464,15 @@ class RDT(ClassifierMixin, BaseEstimator):
                     x[j] += x_perturb[1][j]
                 t = 1
                 while t <= len(branch_nodes):
-                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.001):
+                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
                         t = 2*t + 1
                     else:
                         t = 2*t
                         
                 if c_vals[t, y_class[x_perturb[0]]] > 0.5:
                     acc_count += 1
+
+            print("Accuracy (perturbed) before adding cut", acc_count/len(X))
 
             if model.objVal > acc_count:
                 if self.verbose:
@@ -486,7 +494,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                             for f in range(n_features):
                                 temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
 
-                            temp_2 = temp_2[:-3] + " <= " + "b[" + str(t) + "]"
+                            temp_2 = temp_2[:-3] + " <= " + "b[" + str(t) + "] - epsilon"
                             if self.verbose:
                                 print(temp_2)
                             
@@ -526,7 +534,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             for i, x in enumerate(X):
                 t = 1
                 while t <= len(branch_nodes):
-                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.001):
+                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
                         t = 2*t + 1
                     else:
                         t = 2*t
