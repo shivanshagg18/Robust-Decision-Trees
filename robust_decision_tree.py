@@ -233,10 +233,19 @@ class RDT(ClassifierMixin, BaseEstimator):
         n_samples, n_features = X.shape
         classes = unique_labels(y_class)
 
-        y, p, q = second_model._vars
-        p_vals = second_model.getAttr('X', p)
-        q_vals = second_model.getAttr('X', q)
+        # y, p, q = second_model._vars
+        # p_vals = second_model.getAttr('X', p)
+        # q_vals = second_model.getAttr('X', q)
 
+        p_vals = np.zeros((n_samples+1, len(nodes)+1))
+        q_vals = np.zeros((n_samples+1, len(nodes)+1))
+
+        c_vals, a_vals, _a_cap, b_vals, _b_cap, _w, _z, _gamma= first_model._vars
+
+        a_vals = first_model.getAttr('X', a_vals)
+        b_vals = first_model.getAttr('X', b_vals)
+        c_vals = first_model.getAttr('X', c_vals)
+        gamma_vals = first_model.getAttr('X', _gamma)
 
         model = gp.Model()
 
@@ -248,6 +257,33 @@ class RDT(ClassifierMixin, BaseEstimator):
         gamma = model.addVars(n_index, nodes, vtype=GRB.BINARY, name="z")
 
         g = model.addVars(n_samples, vtype=GRB.BINARY, ub=1, name="t")
+
+        for n in branch_nodes:
+            b[n].Start = b_vals[n]
+
+            for f in range(n_features):
+                a[n, f].Start = a_vals[n, f]
+
+        for n in leaf_nodes:
+            for cls in classes:
+                c[n, cls].Start = c_vals[n, cls]
+
+
+        for i, x in enumerate(X):
+            t = 1
+            while t <= len(branch_nodes):
+                if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + self.epsilon:
+                    p_vals[i+1, 2*t] = 1
+                    t = 2*t + 1
+                else:
+                    p_vals[i+1, 2*t + 1] = 1
+                    t = 2*t
+                    
+            if c_vals[t, y_class[i]] > 0.5:
+                q_vals[i+1, t] = 1
+
+            for n in nodes:
+                gamma[i+1, n].Start = gamma_vals[i+1, n] 
 
         model._vars = c, a, a_cap, b, b_cap, gamma, g
 
