@@ -31,6 +31,8 @@ class RDT(ClassifierMixin, BaseEstimator):
         self.third = self.third_model(self.first, self.second)
         self.set_gurobi_params(self.third)
         self.third.optimize()
+
+        # self.cuts()
         
         return self
     
@@ -324,212 +326,215 @@ class RDT(ClassifierMixin, BaseEstimator):
 
         return model
     
-    # def cuts(self):
-    #     model = self.third
+    def cuts(self):
+        model = self.third
 
-    #     c, a, a_cap, b, b_cap, _gamma, g = model._vars
+        c, a, a_cap, b, b_cap, _gamma, g = model._vars
 
-    #     X, y_class, n_index = self.first._X_y_n
-    #     branch_nodes, leaf_nodes, nodes, arcs = self.first._flow_graph
-    #     left_ancestors, right_ancestors, left_nodes, right_nodes = self.first._ancestors
-    #     n_samples, n_features = X.shape
-    #     classes = unique_labels(y_class)
-    #     lam, budget = model._cost
-    #     epsilon = model._epsilon
-    #     gamma_con = 0
+        X, y_class, n_index = self.first._X_y_n
+        branch_nodes, leaf_nodes, nodes, arcs = self.first._flow_graph
+        left_ancestors, right_ancestors, left_nodes, right_nodes = self.first._ancestors
+        n_samples, n_features = X.shape
+        classes = unique_labels(y_class)
+        lam, budget = model._cost
+        epsilon = model._epsilon
+        gamma_con = 0
 
-    #     while(True):
-    #         a_vals = model.getAttr('X', a)
-    #         b_vals = model.getAttr('X', b)
-    #         c_vals = model.getAttr('X', c)
+        while(True):
+            a_vals = model.getAttr('X', a)
+            b_vals = model.getAttr('X', b)
+            c_vals = model.getAttr('X', c)
             
-    #         mu_i_xi = []  # List of tuples (mu, i, xi), one for every sample
-    #         for i, x in enumerate(X):
-    #             best_mu = float('inf')
-    #             best_xi = {}
-    #             for f in range(n_features):
-    #                 best_xi[f] = 0.0
+            mu_i_xi = []  # List of tuples (mu, i, xi), one for every sample
+            for i, x in enumerate(X):
+                best_mu = float('inf')
+                best_xi = {}
+                for f in range(n_features):
+                    best_xi[f] = 0.0
                 
-    #             t = 1
-    #             while t <= len(branch_nodes):
-    #                 if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
-    #                     t = 2*t + 1
-    #                 else:
-    #                     t = 2*t
+                t = 1
+                while t <= len(branch_nodes):
+                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
+                        t = 2*t + 1
+                    else:
+                        t = 2*t
                         
-    #             if c_vals[t, y_class[i]] < 0.5:
-    #                 mu_i_xi.append((0.0, i, best_xi))
-    #                 continue
+                if c_vals[t, y_class[i]] < 0.5:
+                    mu_i_xi.append((0.0, i, best_xi))
+                    continue
                     
-    #             for t in leaf_nodes:
-    #                 if c_vals[t, y[i]] > 0.5:
-    #                     continue
+                for t in leaf_nodes:
+                    if c_vals[t, y_class[i]] > 0.5:
+                        continue
 
-    #                 sub_model = gp.Model()
-    #                 perturb_var = sub_model.addVars(n_features, lb=-GRB.INFINITY, ub=GRB.INFINITY)
-    #                 perturb_cap_var = sub_model.addVars(n_features, lb=0, ub=GRB.INFINITY)
+                    sub_model = gp.Model()
+                    perturb_var = sub_model.addVars(n_features, lb=-GRB.INFINITY, ub=GRB.INFINITY)
+                    perturb_cap_var = sub_model.addVars(n_features, lb=0, ub=GRB.INFINITY)
 
-    #                 obj_fn = gp.quicksum(lam[f]*perturb_cap_var[f] for f in range(n_features))
-    #                 sub_model.setObjective(obj_fn, GRB.MINIMIZE)
+                    obj_fn = gp.quicksum(lam[f]*perturb_cap_var[f] for f in range(n_features))
+                    sub_model.setObjective(obj_fn, GRB.MINIMIZE)
 
-    #                 sub_model.addConstrs((
-    #                     perturb_cap_var[n] >= perturb_var[n]
-    #                     for n in range(n_features)
-    #                 ))
+                    sub_model.addConstrs((
+                        perturb_cap_var[n] >= perturb_var[n]
+                        for n in range(n_features)
+                    ))
 
-    #                 sub_model.addConstrs((
-    #                     perturb_cap_var[n] >= -perturb_var[n]
-    #                     for n in range(n_features)
-    #                 ))
+                    sub_model.addConstrs((
+                        perturb_cap_var[n] >= -perturb_var[n]
+                        for n in range(n_features)
+                    ))
 
-    #                 sub_model.addConstrs((
-    #                     gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) <= b_vals[ancestor] - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
-    #                     for ancestor in left_ancestors[t]
-    #                 ))
-    #                 sub_model.addConstrs((
-    #                     gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) >= b_vals[ancestor] + epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
-    #                     for ancestor in right_ancestors[t]
-    #                 ))
+                    sub_model.addConstrs((
+                        gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) <= b_vals[ancestor] - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
+                        for ancestor in left_ancestors[t]
+                    ))
+                    sub_model.addConstrs((
+                        gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(n_features)) >= b_vals[ancestor] + epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(n_features))
+                        for ancestor in right_ancestors[t]
+                    ))
                     
-    #                 sub_model.Params.LogToConsole = False
+                    sub_model.Params.LogToConsole = False
 
-    #                 sub_model.optimize()
+                    sub_model.optimize()
 
                     
-    #                 if sub_model.status == 2 and sub_model.objVal < best_mu:
-    #                     best_mu = sub_model.objVal
-    #                     best_xi = sub_model.getAttr('X', perturb_var)
+                    if sub_model.status == 2 and sub_model.objVal < best_mu:
+                        best_mu = sub_model.objVal
+                        best_xi = sub_model.getAttr('X', perturb_var)
 
-    #             mu_i_xi.append((best_mu, i, best_xi))
+                mu_i_xi.append((best_mu, i, best_xi))
 
-    #         perturb_set = []
-    #         total_cost = 0
-    #         for mu, i, xi in sorted(mu_i_xi):
-    #             if total_cost + mu <= budget:
-    #                 total_cost += mu
-    #                 perturb_set.append([i, xi])
-    #             else:
-    #                 best_xi = {}
-    #                 for f in range(n_features):
-    #                     best_xi[f] = 0.0
-    #                 perturb_set.append([i, best_xi])
+            perturb_set = []
+            total_cost = 0
+            for mu, i, xi in sorted(mu_i_xi):
+                if total_cost + mu <= budget:
+                    total_cost += mu
+                    perturb_set.append([i, xi])
+                else:
+                    best_xi = {}
+                    for f in range(n_features):
+                        best_xi[f] = 0.0
+                    perturb_set.append([i, best_xi])
 
-    #         if self.verbose:
-    #             print("Perturbation:")
-    #             for per in mu_i_xi:
-    #                 print("Data point " + str(per[1]) + ": " + str(per[2]))
+            if self.verbose:
+                print("Perturbation:")
+                for per in mu_i_xi:
+                    print("Data point " + str(per[1]) + ": " + str(per[2]))
 
-    #             print()
-    #             print("Selected data points:")
-    #             for per in perturb_set:
-    #                 print("Data point " + str(per[0]) + ": " + str(per[1]))
+                print()
+                print("Selected data points:")
+                for per in perturb_set:
+                    print("Data point " + str(per[0]) + ": " + str(per[1]))
 
 
-    #         acc_count = n_samples - len(perturb_set)
-    #         for x_perturb in perturb_set:
-    #             x = np.copy(X[x_perturb[0]])
-    #             for j in x_perturb[1].keys():
-    #                 x[j] += x_perturb[1][j]
-    #             t = 1
-    #             while t <= len(branch_nodes):
-    #                 if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
-    #                     t = 2*t + 1
-    #                 else:
-    #                     t = 2*t
+            acc_count = 0
+            for x_perturb in perturb_set:
+                x = np.copy(X[x_perturb[0]])
+                for j in x_perturb[1].keys():
+                    x[j] += x_perturb[1][j]
+                t = 1
+                while t <= len(branch_nodes):
+                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
+                        t = 2*t + 1
+                    else:
+                        t = 2*t
                         
-    #             if c_vals[t, y[x_perturb[0]]] > 0.5:
-    #                 acc_count += 1
+                if c_vals[t, y_class[x_perturb[0]]] > 0.5:
+                    acc_count += 1
 
-    #         if model.objVal > acc_count:
-    #             if self.verbose:
-    #                 print()
-    #                 print("Constraints added:")
-    #             benders_cut_rhs = gp.LinExpr()
-    #             temp = "g <= "
-    #             for x_perturb in perturb_set:
-    #                 x = np.copy(X[x_perturb[0]])
-    #                 for j in x_perturb[1].keys():
-    #                     x[j] += x_perturb[1][j]
-    #                 t = 1
-    #                 while t <= len(branch_nodes):
-    #                     gamma = model.addVars([1], vtype=GRB.BINARY)
-    #                     gamma_con += 1
-    #                     temp += "gamma_" + str(gamma_con) + " + "
-    #                     if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
-    #                         temp_2 = "gamma_" + str(gamma_con) + " == 1 >> "
-    #                         for f in range(n_features):
-    #                             temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
+            if model.objVal > acc_count:
+                if self.verbose:
+                    print()
+                    print("Constraints added:")
+                benders_cut_rhs = gp.LinExpr()
+                temp = "g <= "
+                for x_perturb in perturb_set:
+                    x = np.copy(X[x_perturb[0]])
+                    for j in x_perturb[1].keys():
+                        x[j] += x_perturb[1][j]
+                    t = 1
+                    while t <= len(branch_nodes):
+                        gamma = model.addVars([1], vtype=GRB.BINARY)
+                        gamma_con += 1
+                        temp += "gamma_" + str(gamma_con) + " + "
+                        if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
+                            temp_2 = "gamma_" + str(gamma_con) + " == 1 >> "
+                            for f in range(n_features):
+                                temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
 
-    #                         temp_2 = temp_2[:-3] + " <= " + "b[" + str(t) + "]"
-    #                         if self.verbose:
-    #                             print(temp_2)
-    #                         model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
-    #                         model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
-    #                         t = 2*t + 1
-    #                     else:
-    #                         temp_2 = "gamma_" + str(gamma_con) + " == 1 >> "
-    #                         for f in range(n_features):
-    #                             temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
+                            temp_2 = temp_2[:-3] + " <= " + "b[" + str(t) + "]"
+                            if self.verbose:
+                                print(temp_2)
+                            
+                            model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
+                            model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
+                            t = 2*t + 1
+                        else:
+                            temp_2 = "gamma_" + str(gamma_con) + " == 1 >> "
+                            for f in range(n_features):
+                                temp_2 = temp_2 + str("a[" + str(t) + "," + str(f) + "]*" + str(x[f]) + " + ")
 
-    #                         temp_2 = temp_2[:-3] + " >= " + "b[" + str(t) + "] +  epsilon"
-    #                         if self.verbose:
-    #                             print(temp_2)
-    #                         model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
-    #                         model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
-    #                         t = 2*t
-    #                     benders_cut_rhs.add(gamma[1])
-    #                 benders_cut_rhs.add(c[t, y[x_perturb[0]]])
-    #                 temp = temp + "c[" + str(t) + "," + str(y[x_perturb[0]]) + "] + "
-
-    #             # temp = temp + str(n_samples - len(perturb_set))
-    #             if self.verbose:
-    #                 print(temp[-3:])
-    #             model.addConstr(g.sum() <= benders_cut_rhs + n_samples - len(perturb_set))
-    #             model.optimize()
-    #         else:
-    #             break
-
-    #         a_vals = model.getAttr('X', a)
-    #         b_vals = model.getAttr('X', b)
-    #         c_vals = model.getAttr('X', c)
-
-    #         acc_count = 0
-    #         for i, x in enumerate(X):
-    #             t = 1
-    #             while t <= len(branch_nodes):
-    #                 if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
-    #                     t = 2*t + 1
-    #                 else:
-    #                     t = 2*t
+                            temp_2 = temp_2[:-3] + " >= " + "b[" + str(t) + "] +  epsilon"
+                            if self.verbose:
+                                print(temp_2)
+                            
+                            model.addConstr((gamma[1] == 1) >> (np.dot([a[t, f] for f in range(n_features)], x) >= b[t] + epsilon))
+                            model.addConstr((gamma[1] == 0) >> (np.dot([a[t, f] for f in range(n_features)], x) <= b[t]))
+                            t = 2*t
                         
-    #             if c_vals[t, y[i]] > 0.5:
-    #                 acc_count += 1
+                        benders_cut_rhs.add(gamma[1])
+                    benders_cut_rhs.add(c[t, y_class[x_perturb[0]]])
+                    temp = temp + "c[" + str(t) + "," + str(y_class[x_perturb[0]]) + "] + "
 
-    #         if self.verbose:
-    #             print()
-    #             print("Hyperplanes:")
-    #             for n in branch_nodes:
-    #                 temp = str(n) + ": "
-    #                 for i in range(n_features):
-    #                     temp = temp + str(a_vals[n, i]) + " + "
-    #                 temp = temp[:-3] + " <= " + str(b_vals[n])
-    #                 print(temp)
+                if self.verbose:
+                    print(temp[-3:])
+                
+                model.addConstr(g.sum() <= benders_cut_rhs)
+                model.optimize()
+            else:
+                break
 
-    #             print()
-    #             print("Leaf nodes:")
-    #             for n in leaf_nodes:
-    #                 temp = str(n) + ": "
-    #                 for i in classes:
-    #                     if c_vals[n, i] == 1:
-    #                         temp = temp + str(i)
-    #                 print(temp)
+            a_vals = model.getAttr('X', a)
+            b_vals = model.getAttr('X', b)
+            c_vals = model.getAttr('X', c)
 
-    #             print()
+            acc_count = 0
+            for i, x in enumerate(X):
+                t = 1
+                while t <= len(branch_nodes):
+                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
+                        t = 2*t + 1
+                    else:
+                        t = 2*t
+                        
+                if c_vals[t, y_class[i]] > 0.5:
+                    acc_count += 1
+
+            if self.verbose:
+                print()
+                print("Hyperplanes:")
+                for n in branch_nodes:
+                    temp = str(n) + ": "
+                    for i in range(n_features):
+                        temp = temp + str(a_vals[n, i]) + " + "
+                    temp = temp[:-3] + " <= " + str(b_vals[n])
+                    print(temp)
+
+                print()
+                print("Leaf nodes:")
+                for n in leaf_nodes:
+                    temp = str(n) + ": "
+                    for i in classes:
+                        if c_vals[n, i] == 1:
+                            temp = temp + str(i)
+                    print(temp)
+
+                print()
             
-    #         print("Accuracy: ", acc_count/len(X))
-    #         print("Objective Value: ", model.objVal)
-    #         print("---------------------------------------------------------")
-    #         print()
+            print("Accuracy: ", acc_count/len(X))
+            print("Objective Value: ", model.objVal)
+            print("---------------------------------------------------------")
+            print()
 
 
     def set_gurobi_params(self, model):
