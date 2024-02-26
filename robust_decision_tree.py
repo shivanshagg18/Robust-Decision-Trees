@@ -265,7 +265,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         for i, x in enumerate(X):
             t = 1
             while t <= len(branch_nodes):
-                if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + self.epsilon:
+                if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.001):
                     p_vals[i+1, 2*t] = 1
                     t = 2*t + 1
                 else:
@@ -378,7 +378,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                 
                 t = 1
                 while t <= len(branch_nodes):
-                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
+                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.001):
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -458,7 +458,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                     x[j] += x_perturb[1][j]
                 t = 1
                 while t <= len(branch_nodes):
-                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
+                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.001):
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -526,7 +526,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             for i, x in enumerate(X):
                 t = 1
                 while t <= len(branch_nodes):
-                    if np.dot([a_vals[t, f] for f in range(n_features)], x) >= b_vals[t] + epsilon:
+                    if (np.dot([a_vals[t, f] for f in range(n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(n_features)], x) - b_vals[t] - self.epsilon) <= 0.001):
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -564,5 +564,5 @@ class RDT(ClassifierMixin, BaseEstimator):
     def set_gurobi_params(self, model):
         model.Params.LogToConsole = False
         model.Params.OutputFlag = False
-        model.Params.MIPGap = 0.0
-        model.Params.MIPGapAbs = 0.999
+        # model.Params.MIPGap = 0.0
+        # model.Params.MIPGapAbs = 0.999
