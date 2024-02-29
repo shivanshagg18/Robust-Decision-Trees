@@ -366,6 +366,11 @@ class RDT(ClassifierMixin, BaseEstimator):
                     ))
 
                     sub_model.addConstrs((
+                        perturb_cap_var[n] <= 0.05
+                        for n in range(self.n_features)
+                    ))
+
+                    sub_model.addConstrs((
                         gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(self.n_features)) <= b_vals[ancestor] - 2*self.epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(self.n_features))
                         for ancestor in self.left_ancestors[t]
                     ))
