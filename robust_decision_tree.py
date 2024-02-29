@@ -138,11 +138,14 @@ class RDT(ClassifierMixin, BaseEstimator):
         for j in range(self.num_cuts):
             for i in range(n_samples):
                 if j != 0:
-                    peturb_temp = np.random.dirichlet(np.ones(n_features),size=1)[0]*self.budget/n_samples
-                    perturb[j, i] = peturb_temp
+                    perturb[j, i] = np.random.dirichlet(np.ones(n_features),size=1)[0]*self.budget/n_samples
                 else:
-                    peturb_temp = np.zeros((n_features))
-                    perturb[j, i] = peturb_temp 
+                    perturb[j, i] = np.zeros((n_features))
+
+            for f in range(n_features):
+                rndm = random.randint(0, 1)
+                if rndm == 0:
+                    perturb[j, i, f] = -perturb[j, i, f]
 
             model.addConstrs((
                 w[i, n] <= gamma[j, i, n]
@@ -419,6 +422,11 @@ class RDT(ClassifierMixin, BaseEstimator):
 
                     sub_model.addConstrs((
                         perturb_cap_var[n] >= -perturb_var[n]
+                        for n in range(n_features)
+                    ))
+
+                    sub_model.addConstrs((
+                        perturb_cap_var[n] <= 0.05
                         for n in range(n_features)
                     ))
 
