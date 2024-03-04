@@ -88,6 +88,47 @@ class RDT(ClassifierMixin, BaseEstimator):
         self.set_gurobi_params(self.second)
         self.second.optimize()
 
+        a_vals = self.second.getAttr('X', a)
+        b_vals = self.second.getAttr('X', b)
+        c_vals = self.second.getAttr('X', c)
+
+        acc_count = 0
+        for i, x in enumerate(self.X):
+            t = 1
+            while t <= len(self.branch_nodes):
+                if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
+                    t = 2*t + 1
+                else:
+                    t = 2*t
+                    
+            if c_vals[t, self.y[i]] > 0.5:
+                acc_count += 1
+
+        if self.verbose:
+            print()
+            print("Hyperplanes:")
+            for n in self.branch_nodes:
+                temp = str(n) + ": "
+                for i in range(self.n_features):
+                    temp = temp + str(a_vals[n, i]) + " + "
+                temp = temp[:-3] + " <= " + str(b_vals[n])
+                print(temp)
+
+            print()
+            print("Leaf nodes:")
+            for n in self.leaf_nodes:
+                temp = str(n) + ": "
+                for i in self.classes:
+                    if c_vals[n, i] == 1:
+                        temp = temp + str(i)
+                print(temp)
+
+            print()
+        
+        print("Accuracy: ", acc_count/len(self.X))
+        print("Objective Value: ", self.second.objVal)
+        print("---------------------------------------------------------")
+
         self.cuts()
         
         return self
