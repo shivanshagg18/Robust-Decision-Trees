@@ -10,16 +10,18 @@ from decision_tree import MultivariateDecisionTree
 import random
 
 class RDT(ClassifierMixin, BaseEstimator):
-    def __init__(self, verbose=0, epsilon=0.01, max_depth=1, budget=0, num_cuts=1):
+    def __init__(self, verbose=0, epsilon=0.01, max_depth=1, budget=0, num_cuts=1, time_limit=20):
         self.max_depth = max_depth
         self.verbose = verbose
         self.epsilon = epsilon
         self.budget = budget
         self.num_cuts = num_cuts
+        self.time_limit = time_limit
 
     def set_gurobi_params(self, model):
         model.Params.LogToConsole = False
         model.Params.OutputFlag = False
+        model.Params.TimeLimit = self.time_limit
 
     def define_variables(self, X, y):
         self.X, self.y = check_X_y(X, y)
@@ -78,12 +80,6 @@ class RDT(ClassifierMixin, BaseEstimator):
             gamma_vals.append(self.first.getAttr('X', gamma))
             perturb_vals[cut] = perturb
 
-
-        # print(a_vals)
-        # print(b_vals)
-        # print(c_vals)
-        # print(perturb_vals)
-
         self.second = self.second_model(a_vals, b_vals, c_vals, gamma_vals, perturb_vals)
         self.set_gurobi_params(self.second)
         self.second.optimize()
@@ -96,7 +92,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         for i, x in enumerate(self.X):
             t = 1
             while t <= len(self.branch_nodes):
-                if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
+                if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= self.epsilon/100):
                     t = 2*t + 1
                 else:
                     t = 2*t
@@ -269,7 +265,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             for i, x in enumerate(self.X):
                 t = 1
                 while t <= len(self.branch_nodes):
-                    if (np.dot([a_vals[j][t, f] for f in range(self.n_features)], x + perturb_vals[j, i]) > b_vals[j][t] + self.epsilon) or (np.abs(np.dot([a_vals[j][t, f] for f in range(self.n_features)], x + perturb_vals[j, i]) - b_vals[j][t] - self.epsilon) <= 0.0001):
+                    if (np.dot([a_vals[j][t, f] for f in range(self.n_features)], x + perturb_vals[j, i]) > b_vals[j][t] + self.epsilon) or (np.abs(np.dot([a_vals[j][t, f] for f in range(self.n_features)], x + perturb_vals[j, i]) - b_vals[j][t] - self.epsilon) <= self.epsilon/100):
                         p_vals[j, i+1, 2*t] = 1
                         t = 2*t + 1
                     else:
@@ -294,6 +290,11 @@ class RDT(ClassifierMixin, BaseEstimator):
         model.addConstrs((
             c.sum(n, "*") == 1
             for n in self.leaf_nodes
+        ))
+
+        model.addConstrs((
+            c.sum("*", n) >= 1
+            for n in self.classes
         ))
 
         model.addConstrs((
@@ -376,7 +377,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                 
                 t = 1
                 while t <= len(self.branch_nodes):
-                    if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
+                    if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= self.epsilon/100):
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -390,6 +391,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                         continue
 
                     sub_model = gp.Model()
+                    self.set_gurobi_params(sub_model)
                     perturb_var = sub_model.addVars(self.n_features, lb=-GRB.INFINITY, ub=GRB.INFINITY)
                     perturb_cap_var = sub_model.addVars(self.n_features, lb=0, ub=GRB.INFINITY)
 
@@ -406,10 +408,26 @@ class RDT(ClassifierMixin, BaseEstimator):
                         for n in range(self.n_features)
                     ))
 
-                    # sub_model.addConstrs((
-                    #     perturb_cap_var[n] <= 0.05
-                    #     for n in range(self.n_features)
-                    # ))
+                    sub_model.addConstrs((
+                        perturb_cap_var[n] <= 0.05
+                        for n in range(self.n_features)
+                    ))
+
+                    sub_model.addConstrs((
+                        perturb_cap_var[n] >= 0.01
+                        for n in range(self.n_features)
+                    ))
+
+                    sub_model.addConstrs((
+                        x[n] + perturb_var[n] <= 1
+                        for n in range(self.n_features)
+                    ))
+
+                    sub_model.addConstrs((
+                        x[n] + perturb_var[n] >= 0
+                        for n in range(self.n_features)
+                    ))
+
 
                     sub_model.addConstrs((
                         gp.quicksum(a_vals[ancestor, f]*perturb_var[f] for f in range(self.n_features)) <= b_vals[ancestor] - 2*self.epsilon - gp.quicksum(a_vals[ancestor, f]*x[f] for f in range(self.n_features))
@@ -462,7 +480,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                     x[j] += x_perturb[1][j]
                 t = 1
                 while t <= len(self.branch_nodes):
-                    if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
+                    if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= self.epsilon/100):
                         t = 2*t + 1
                     else:
                         t = 2*t
@@ -517,7 +535,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                     temp = temp + "c[" + str(t) + "," + str(self.y[x_perturb[0]]) + "] + "
 
                 if self.verbose:
-                    print(temp[-3:])
+                    print(temp[:-3])
                 
                 model.addConstr(g.sum() <= benders_cut_rhs)
                 model.optimize()
@@ -532,7 +550,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             for i, x in enumerate(self.X):
                 t = 1
                 while t <= len(self.branch_nodes):
-                    if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= 0.0001):
+                    if (np.dot([a_vals[t, f] for f in range(self.n_features)], x) > b_vals[t] + self.epsilon) or (np.abs(np.dot([a_vals[t, f] for f in range(self.n_features)], x) - b_vals[t] - self.epsilon) <= self.epsilon/100):
                         t = 2*t + 1
                     else:
                         t = 2*t
