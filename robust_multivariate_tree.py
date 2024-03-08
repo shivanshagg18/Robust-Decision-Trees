@@ -18,6 +18,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         self.num_cuts = num_cuts
         self.time_limit = time_limit
         self.obj_relax = obj_relax
+        self.time_stats = pd.DataFrame({"Perturbed Accuracy": [], "Accuracy": [], "Objective Value": [], "Time": []})
 
     def set_gurobi_params(self, model):
         model.Params.LogToConsole = False
@@ -495,6 +496,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                     acc_count += 1
 
             print("Accuracy (perturbed) before adding cut: ", acc_count/len(self.X))
+            time_stats_row = [acc_count/len(self.X)]
 
             if model.objVal > acc_count + (iter_count//self.obj_relax):
                 if self.verbose:
@@ -585,6 +587,12 @@ class RDT(ClassifierMixin, BaseEstimator):
 
                 print()
             
+            time_stats_row.append(acc_count/len(self.X))
+            time_stats_row.append(model.objVal)
+            time_stats_row.append(model.Runtime)
+
+            self.time_stats.at[iter_count] = time_stats_row
+
             print("Accuracy: ", acc_count/len(self.X))
             print("Objective Value: ", model.objVal)
             print("---------------------------------------------------------")
