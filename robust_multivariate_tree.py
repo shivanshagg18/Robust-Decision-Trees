@@ -23,7 +23,9 @@ class RDT(ClassifierMixin, BaseEstimator):
     def set_gurobi_params(self, model):
         model.Params.LogToConsole = False
         model.Params.OutputFlag = False
-        model.Params.TimeLimit = self.time_limit
+
+        if self.time_limit != -1:
+            model.Params.TimeLimit = self.time_limit
 
     def define_variables(self, X, y):
         self.X, self.y = check_X_y(X, y)
@@ -500,7 +502,10 @@ class RDT(ClassifierMixin, BaseEstimator):
             print("Accuracy (perturbed) before adding cut: ", acc_count/len(self.X))
             time_stats_row = [acc_count/len(self.X)]
 
-            if model.objVal > acc_count + (iter_count//self.obj_relax):
+            if self.obj_relax != -1:
+                acc_count = acc_count + (iter_count//self.obj_relax)
+
+            if model.objVal > acc_count:
                 if self.verbose:
                     print()
                     print("Logical Constraints added:")
