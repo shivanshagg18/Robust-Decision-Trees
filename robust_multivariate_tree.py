@@ -10,13 +10,14 @@ from decision_tree import MultivariateDecisionTree
 import random
 
 class RDT(ClassifierMixin, BaseEstimator):
-    def __init__(self, verbose=0, epsilon=0.01, max_depth=1, budget=0, num_cuts=1, time_limit=20):
+    def __init__(self, verbose=0, epsilon=0.01, max_depth=1, budget=0, num_cuts=1, time_limit=20, obj_relax=10):
         self.max_depth = max_depth
         self.verbose = verbose
         self.epsilon = epsilon
         self.budget = budget
         self.num_cuts = num_cuts
         self.time_limit = time_limit
+        self.obj_relax = obj_relax
 
     def set_gurobi_params(self, model):
         model.Params.LogToConsole = False
@@ -106,7 +107,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             for n in self.branch_nodes:
                 temp = str(n) + ": "
                 for i in range(self.n_features):
-                    temp = temp + str(a_vals[n, i]) + " + "
+                    temp = temp + str(a_vals[n, i]) + "x" + str(i) + " + "
                 temp = temp[:-3] + " <= " + str(b_vals[n])
                 print(temp)
 
@@ -362,8 +363,13 @@ class RDT(ClassifierMixin, BaseEstimator):
         lam, budget = model._cost
 
         gamma_con = 0
+        iter_count = 0
 
         while(True):
+            iter_count += 1
+            print("Iteration Number:", iter_count)
+            print()
+
             a_vals = model.getAttr('X', a)
             b_vals = model.getAttr('X', b)
             c_vals = model.getAttr('X', c)
@@ -488,12 +494,12 @@ class RDT(ClassifierMixin, BaseEstimator):
                 if c_vals[t, self.y[x_perturb[0]]] > 0.5:
                     acc_count += 1
 
-            print("Accuracy (perturbed) before adding cut", acc_count/len(self.X))
+            print("Accuracy (perturbed) before adding cut: ", acc_count/len(self.X))
 
-            if model.objVal > acc_count:
+            if model.objVal > acc_count + (iter_count//self.obj_relax):
                 if self.verbose:
                     print()
-                    print("Constraints added:")
+                    print("Logical Constraints added:")
                 benders_cut_rhs = gp.LinExpr()
                 temp = "g <= "
                 for x_perturb in perturb_set:
@@ -564,12 +570,12 @@ class RDT(ClassifierMixin, BaseEstimator):
                 for n in self.branch_nodes:
                     temp = str(n) + ": "
                     for i in range(self.n_features):
-                        temp = temp + str(a_vals[n, i]) + " + "
+                        temp = temp + str(a_vals[n, i]) + "x" + str(i) + " + "
                     temp = temp[:-3] + " <= " + str(b_vals[n])
                     print(temp)
 
                 print()
-                print("Leaf nodes:")
+                print("Leaf nodes labels:")
                 for n in self.leaf_nodes:
                     temp = str(n) + ": "
                     for i in self.classes:
