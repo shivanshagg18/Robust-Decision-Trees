@@ -18,7 +18,7 @@ class RDT(ClassifierMixin, BaseEstimator):
         self.num_cuts = num_cuts
         self.time_limit = time_limit
         self.obj_relax = obj_relax
-        self.time_stats = pd.DataFrame({"Perturbed Accuracy": [], "Accuracy": [], "Objective Value": [], "Time": []})
+        self.time_stats = pd.DataFrame({"Perturbed Accuracy": [], "Accuracy": [], "Objective Value": [], "Subproblem Time": [], "Master Problem Time": []})
 
     def set_gurobi_params(self, model):
         model.Params.LogToConsole = False
@@ -376,6 +376,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             c_vals = model.getAttr('X', c)
             
             mu_i_xi = []
+            sub_problem_time = time.time()
             for i, x in enumerate(self.X):
                 best_mu = float('inf')
                 best_xi = {}
@@ -456,6 +457,7 @@ class RDT(ClassifierMixin, BaseEstimator):
                         best_xi = sub_model.getAttr('X', perturb_var)
 
                 mu_i_xi.append((best_mu, i, best_xi))
+            sub_problem_time = time.time() - sub_problem_time
 
             perturb_set = []
             total_cost = 0
@@ -589,6 +591,7 @@ class RDT(ClassifierMixin, BaseEstimator):
             
             time_stats_row.append(acc_count/len(self.X))
             time_stats_row.append(model.objVal)
+            time_stats_row.append(sub_problem_time)
             time_stats_row.append(model.Runtime)
 
             self.time_stats.at[iter_count] = time_stats_row
